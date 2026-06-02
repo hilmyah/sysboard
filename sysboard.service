@@ -1,20 +1,22 @@
 [Unit]
 Description=SysBoard - System Dashboard v2
 After=network.target
-Documentation=https://github.com/hilmyah/sysboard
+Documentation=https://github.com/hilmyah/SysBoard
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/sysboard
+
+# Secrets and configuration are injected from .env — never hardcoded in source.
+# File must be readable by root only: chmod 600 /opt/sysboard/.env
+EnvironmentFile=/opt/sysboard/.env
+
 ExecStart=/opt/sysboard/sysboard
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
 StandardError=journal
-
-# Hardening (optional, comment out if causing issues)
-# NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

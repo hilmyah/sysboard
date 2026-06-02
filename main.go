@@ -14,10 +14,12 @@ import (
 	"time"
 )
 
-const (
-	listenPort  = ":8888"
-	staticToken = "558855Hilmy!75"
-	logFilePath = "/var/log/bedrock-server.log"
+// Configuration loaded from environment at startup.
+// systemd injects these via EnvironmentFile=/opt/sysboard/.env
+var (
+	listenPort  string
+	staticToken string
+	logFilePath string
 )
 
 // ─── Middleware ───────────────────────────────────────────────────────────────
@@ -47,20 +49,20 @@ func authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 // ─── System Metrics ───────────────────────────────────────────────────────────
 
 type SystemMetrics struct {
-	CPUPercent  float64    `json:"cpu_percent"`
-	RAMTotal    uint64     `json:"ram_total"`
-	RAMUsed     uint64     `json:"ram_used"`
-	RAMFree     uint64     `json:"ram_free"`
-	RAMPercent  float64    `json:"ram_percent"`
-	Disks       []DiskInfo `json:"disks"`
-	Uptime      string     `json:"uptime"`
-	LoadAvg     string     `json:"load_avg"`
-	Timestamp   string     `json:"timestamp"`
-	NetRxBytes  uint64     `json:"net_rx_bytes"`
-	NetTxBytes  uint64     `json:"net_tx_bytes"`
-	NetRxRate   float64    `json:"net_rx_rate"`
-	NetTxRate   float64    `json:"net_tx_rate"`
-	CPUTemp     float64    `json:"cpu_temp"`
+	CPUPercent float64    `json:"cpu_percent"`
+	RAMTotal   uint64     `json:"ram_total"`
+	RAMUsed    uint64     `json:"ram_used"`
+	RAMFree    uint64     `json:"ram_free"`
+	RAMPercent float64    `json:"ram_percent"`
+	Disks      []DiskInfo `json:"disks"`
+	Uptime     string     `json:"uptime"`
+	LoadAvg    string     `json:"load_avg"`
+	Timestamp  string     `json:"timestamp"`
+	NetRxBytes uint64     `json:"net_rx_bytes"`
+	NetTxBytes uint64     `json:"net_tx_bytes"`
+	NetRxRate  float64    `json:"net_rx_rate"`
+	NetTxRate  float64    `json:"net_tx_rate"`
+	CPUTemp    float64    `json:"cpu_temp"`
 }
 
 type DiskInfo struct {
@@ -272,18 +274,17 @@ func handleMetrics(w http.ResponseWriter, r *http.Request) {
 // ─── Systemd Services (with RAM + Uptime) ─────────────────────────────────────
 
 type ServiceStatus struct {
-	Name      string  `json:"name"`
-	Active    string  `json:"active"`
-	Sub       string  `json:"sub"`
-	Desc      string  `json:"desc"`
-	MemBytes  uint64  `json:"mem_bytes"`
-	UptimeSec int64   `json:"uptime_sec"`
-	UptimeStr string  `json:"uptime_str"`
-	LoadState string  `json:"load_state"`
+	Name      string `json:"name"`
+	Active    string `json:"active"`
+	Sub       string `json:"sub"`
+	Desc      string `json:"desc"`
+	MemBytes  uint64 `json:"mem_bytes"`
+	UptimeSec int64  `json:"uptime_sec"`
+	UptimeStr string `json:"uptime_str"`
+	LoadState string `json:"load_state"`
 }
 
 func getServiceMemAndUptime(name string) (memBytes uint64, uptimeSec int64) {
-	// MemoryCurrent
 	out, err := exec.Command("systemctl", "show", name+".service", "--property=MemoryCurrent,ActiveEnterTimestamp").Output()
 	if err != nil {
 		return
@@ -305,7 +306,6 @@ func getServiceMemAndUptime(name string) (memBytes uint64, uptimeSec int64) {
 			ts = strings.TrimSpace(ts)
 			if ts != "" && ts != "n/a" {
 				// Parse systemd timestamp: "Tue 2026-06-02 10:52:30 WIB"
-				// Use systemd-analyze to avoid timezone parsing complexity
 				t, err := time.Parse("Mon 2006-01-02 15:04:05 MST", ts)
 				if err == nil {
 					uptimeSec = int64(time.Since(t).Seconds())
@@ -385,13 +385,13 @@ func handleServiceAction(w http.ResponseWriter, r *http.Request) {
 // ─── Container Engines ────────────────────────────────────────────────────────
 
 type ContainerInfo struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Image   string `json:"image"`
-	Status  string `json:"status"`
-	State   string `json:"state"`
-	Ports   string `json:"ports"`
-	Engine  string `json:"engine"`
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Image  string `json:"image"`
+	Status string `json:"status"`
+	State  string `json:"state"`
+	Ports  string `json:"ports"`
+	Engine string `json:"engine"`
 }
 
 type EngineInfo struct {
@@ -501,19 +501,15 @@ func getKubernetesPods() []ContainerInfo {
 func handleContainerList(w http.ResponseWriter, r *http.Request) {
 	var all []ContainerInfo
 
-	// Docker
 	if commandExists("docker") && socketExists("/var/run/docker.sock") {
 		all = append(all, getDockerContainers("docker", "docker")...)
 	}
-	// Podman
 	if commandExists("podman") {
 		all = append(all, getDockerContainers("podman", "podman")...)
 	}
-	// containerd via nerdctl
 	if commandExists("nerdctl") {
 		all = append(all, getNerdctlContainers()...)
 	}
-	// Kubernetes / k3s
 	if commandExists("kubectl") || commandExists("k3s") {
 		all = append(all, getKubernetesPods()...)
 	}
@@ -709,7 +705,6 @@ func handlePluginInstall(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, `{"error":"unknown plugin"}`, http.StatusNotFound)
 		return
 	}
-	// Execute install command in background, stream status
 	out, err := exec.Command("bash", "-c", plugin.InstallCmd).CombinedOutput()
 	result := map[string]string{"output": string(out), "id": id}
 	if err != nil {
@@ -743,6 +738,24 @@ func handleLogin(w http.ResponseWriter, r *http.Request) {
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 func main() {
+	// Load required configuration from environment.
+	// systemd injects these from EnvironmentFile=/opt/sysboard/.env
+	staticToken = os.Getenv("SYSBOARD_TOKEN")
+	if staticToken == "" {
+		log.Fatal("SYSBOARD_TOKEN is not set; set it in /opt/sysboard/.env and reload the service")
+	}
+
+	port := os.Getenv("SYSBOARD_PORT")
+	if port == "" {
+		port = "8888"
+	}
+	listenPort = ":" + port
+
+	logFilePath = os.Getenv("SYSBOARD_LOG_PATH")
+	if logFilePath == "" {
+		logFilePath = "/var/log/bedrock-server.log"
+	}
+
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

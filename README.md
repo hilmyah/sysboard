@@ -1,66 +1,175 @@
-# SysBoard — Deploy Guide
+# SysBoard
 
-## Struktur Direktori
+![Go Version](https://img.shields.io/badge/Go-%3E%3D1.21-00ADD8?logo=go&logoColor=white)
+![License](https://img.shields.io/badge/License-MIT-green)
+![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey?logo=linux)
+![Zero Dependencies](https://img.shields.io/badge/Runtime_Dependencies-none-brightgreen)
+
+Self-hosted Linux system dashboard built with Go (stdlib only) and Alpine.js. Runs as a single binary with no runtime dependencies. Designed for VPS and home server use.
+
+---
+
+## Features
+
+**Overview tab** — CPU usage, RAM, CPU temperature (hwmon + thermal_zone fallback), system uptime, network RX/TX rates with total counters, disk usage per mount.
+
+**Services tab** — All systemd units with live RAM usage (`MemoryCurrent`) and uptime per service. Sortable by name, RAM, uptime, or status. Full-text search. Start / stop / restart actions.
+
+**Containers tab** — Multi-engine container discovery: Docker, Podman, containerd (via nerdctl), Kubernetes, and k3s. Engine detection with version display. Per-engine filter. Start / stop / restart actions.
+
+**Plugins tab** — Plugin catalog with one-click install via backend bash execution. Categories: gaming, containers, network, apps, orchestration. Install status detected via `which` and `systemctl is-active`.
+
+**Minecraft tab** — Auto-detected. Visible only when the log file path is accessible. Displays last 50 lines of Bedrock server log with live refresh. Send screen commands directly from the UI.
+
+---
+
+## Requirements
+
+- Linux (Ubuntu 20.04+ / Debian 11+ recommended)
+- Go >= 1.21 (build-time only; binary has no runtime deps)
+- `systemd` (for service management and service metrics)
+- `screen` (optional; required only for Minecraft command forwarding)
+
+---
+
+## Repository Structure
 
 ```
-/opt/sysboard/
-├── main.go
+/
+├── main.go                  source
 ├── go.mod
-├── sysboard          ← binary hasil build
-└── static/
-    └── index.html
+├── static/
+│   └── index.html           frontend (single file, no build step)
+├── systemd/
+│   └── sysboard.service     systemd unit template with EnvironmentFile
+├── .env.example             configuration template (no secrets)
+├── .gitignore
+└── README.md
 ```
 
-## Quick Deploy
+---
+
+## Deploy
+
+### 1. Clone and configure
 
 ```bash
-# 1. Salin file ke server
-cd /opt
-git clone https://github.com/hilmyah/SysBoard.git
+git clone https://github.com/hilmyah/SysBoard.git /opt/sysboard
+cd /opt/sysboard
 
-# 2. Build binary (butuh Go >= 1.21)
-cd Sysboard
+# Create .env from template and set permissions
+cp .env.example .env
+chmod 600 .env
+```
+
+Edit `.env` and set `SYSBOARD_TOKEN` to a strong random value:
+
+```bash
+# Generate a token
+openssl rand -hex 32
+```
+
+### 2. Build
+
+```bash
 go build -ldflags="-s -w" -o sysboard main.go
+```
 
-# 3. Install systemd service
-cp sysboard.service /etc/systemd/system/
+### 3. Install and start service
+
+```bash
+cp systemd/sysboard.service /etc/systemd/system/
 systemctl daemon-reload
 systemctl enable --now sysboard
+```
 
-# 4. Cek status
+### 4. Verify
+
+```bash
 systemctl status sysboard
+journalctl -u sysboard -f
+
+# Test login (replace TOKEN with your value from .env)
 curl -s http://localhost:8888/api/login \
   -H 'Content-Type: application/json' \
-  -d '{"token":"<YOUR_STATIC_TOKEN>"}'
+  -d '{"token":"TOKEN"}'
 ```
 
-## Ubah Token
+Expected response: `{"ok":true}`
 
-Edit `main.go` baris:
-```go
-staticToken = "<YOUR_STATIC_TOKEN>"
+---
+
+## Configuration (.env)
+
+All configuration is read from `/opt/sysboard/.env`. systemd injects these into the process environment via `EnvironmentFile=`.
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `SYSBOARD_TOKEN` | Yes | none | Static token for all API authentication |
+| `SYSBOARD_PORT` | No | `8888` | TCP listen port |
+| `SYSBOARD_LOG_PATH` | No | `/var/log/bedrock-server.log` | Bedrock log path; set empty to disable Minecraft tab |
+
+The binary will refuse to start if `SYSBOARD_TOKEN` is not set.
+
+### Changing the token
+
+```bash
+# Edit .env
+nano /opt/sysboard/.env
+
+# Restart service to apply
+systemctl restart sysboard
 ```
-Ganti dengan token kuat, lalu rebuild.
 
-## API Endpoints Baru (v2)
+No rebuild required for configuration changes.
 
-| Endpoint | Metode | Keterangan |
-|---|---|---|
-| `GET /api/metrics` | GET | CPU, RAM, Disk, Temp, Network I/O |
-| `GET /api/services` | GET | Semua systemd service + RAM + Uptime per service |
-| `POST /api/services/action` | POST | `{service, action}` |
-| `GET /api/containers` | GET | Multi-engine: docker + podman + nerdctl + k3s |
-| `GET /api/containers/engines` | GET | Engine detection + versi |
-| `POST /api/containers/action` | POST | `{id, engine, action}` |
-| `GET /api/plugins` | GET | Daftar plugin + status installed |
-| `POST /api/plugins/install` | POST | `{id}` — install plugin via bash |
-| `GET /api/mc/log` | GET | 50 baris terakhir bedrock log |
-| `POST /api/mc/command` | POST | `{command}` |
+---
 
-## Rebuild Setelah Edit
+## Rebuild After Editing Source
 
 ```bash
 cd /opt/sysboard
 go build -ldflags="-s -w" -o sysboard main.go
 systemctl restart sysboard
 ```
+
+---
+
+## API Reference
+
+All endpoints except `/api/login` require the header `X-Auth-Token: <your token>`.
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `POST /api/login` | POST | `{"token":"..."}` -- returns `{"ok":true}` |
+| `GET /api/metrics` | GET | CPU, RAM, disk, temp, network I/O rates |
+| `GET /api/services` | GET | All systemd services with RAM + uptime |
+| `POST /api/services/action` | POST | `{"service":"name","action":"start|stop|restart"}` |
+| `GET /api/containers` | GET | Containers from all detected engines |
+| `GET /api/containers/engines` | GET | Detected engines and their versions |
+| `POST /api/containers/action` | POST | `{"id":"...","engine":"docker|podman|...","action":"..."}` |
+| `GET /api/plugins` | GET | Plugin catalog with install status |
+| `POST /api/plugins/install` | POST | `{"id":"plugin_id"}` |
+| `GET /api/mc/log` | GET | Last 50 lines of Bedrock log |
+| `POST /api/mc/command` | POST | `{"command":"..."}` -- forwarded to screen session |
+
+---
+
+## Security Notes
+
+- `.env` contains your token. Keep permissions at `600` and owner `root`.
+- `.gitignore` blocks `.env` and the compiled binary from being committed.
+- The binary is served over plain HTTP. For public exposure, put it behind a reverse proxy with TLS (nginx, Caddy).
+- Service actions and plugin installs execute as `root` (the systemd `User=`). Only expose the dashboard on trusted networks.
+
+---
+
+## Contributing
+
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature/your-feature`.
+3. Keep `go.mod` free of external dependencies -- stdlib only.
+4. Test on a real Linux system; this code reads `/proc` and `/sys` directly.
+5. Open a pull request with a clear description of what changed and why.
+
+Bug reports: open an issue with the output of `journalctl -u sysboard --no-pager -n 50`.
