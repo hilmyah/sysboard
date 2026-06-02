@@ -778,7 +778,7 @@ func main() {
 	mux.HandleFunc("/api/plugins", authMiddleware(handlePlugins))
 	mux.HandleFunc("/api/plugins/install", authMiddleware(handlePluginInstall))
 
-	log.Printf("SysBoard v2 listening on %s", listenPort)
+	log.Printf("SysBoard listening on %s", listenPort)
 	if err := http.ListenAndServe(listenPort, mux); err != nil {
 		log.Fatal(err)
 	}

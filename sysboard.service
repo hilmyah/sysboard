@@ -1,5 +1,5 @@
 [Unit]
-Description=SysBoard - System Dashboard v2
+Description=SysBoard - System Dashboard
 After=network.target
 Documentation=https://github.com/hilmyah/SysBoard
 
