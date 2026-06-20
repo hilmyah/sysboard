@@ -1,24 +1,9 @@
-# Build output
+# Compiled binary
 sysboard
-sysboard.exe
 
-# Environment / secrets — NEVER commit .env
+# Environment file (contains secret token)
 .env
 
-# Log files
-*.log
-
-# Editor artifacts
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS metadata
-.DS_Store
-Thumbs.db
-
-# Go test cache
+# Build artifacts
 *.test
 *.out

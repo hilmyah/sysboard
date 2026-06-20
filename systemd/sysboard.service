@@ -8,7 +8,7 @@ Type=simple
 User=root
 WorkingDirectory=/opt/sysboard
 
-# Secrets and configuration are injected from .env — never hardcoded in source.
+# Secrets and configuration are injected from .env -- never hardcoded in source.
 # File must be readable by root only: chmod 600 /opt/sysboard/.env
 EnvironmentFile=/opt/sysboard/.env
 
