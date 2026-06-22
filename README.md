@@ -1,75 +1,126 @@
-# SysBoard
+<div align="center">
+  <h1>SysBoard</h1>
+  <p>Dashboard sistem Linux self-hosted berbasis Go stdlib dan vanilla JS, berjalan sebagai binary tunggal tanpa dependensi runtime.</p>
+</div>
 
-![Go Version](https://img.shields.io/badge/Go-%3E%3D1.21-00ADD8?logo=go&logoColor=white)
-![License](https://img.shields.io/badge/License-MIT-green)
-![Platform](https://img.shields.io/badge/Platform-Linux-lightgrey?logo=linux)
-![Zero Dependencies](https://img.shields.io/badge/Runtime_Dependencies-none-brightgreen)
-
-Self-hosted Linux system dashboard built with Go (stdlib only) and vanilla JS. Runs as a single binary with no runtime dependencies and makes zero external network requests on page load.
-
----
-
-## Features
-
-**Overview** -- CPU usage, RAM, CPU temperature (hwmon + thermal_zone fallback), system uptime, network RX/TX rates with cumulative counters, disk usage per mount (auto-detected from `/proc/mounts`).
-
-**Processes** -- Top 30 processes by CPU consumption, read from `/proc`. Shows PID, CPU%, RAM, user, and state. Filterable by name.
-
-**Services** -- All systemd units with live RAM usage and uptime per service. Sortable by name, RAM, or status. Full-text search. Start / stop / restart actions.
-
-**Containers** -- Multi-engine container discovery: Docker, Podman, containerd (via nerdctl). Engine detection is automatic. Start / stop / restart actions. Optional at install time.
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-%3E%3D1.21-00ADD8?logo=go&logoColor=white" alt="Go Version">
+  <img src="https://img.shields.io/badge/License-MIT-green" alt="License">
+  <img src="https://img.shields.io/badge/Platform-Linux-lightgrey?logo=linux" alt="Platform">
+  <img src="https://img.shields.io/badge/Runtime_Dependencies-none-brightgreen" alt="Zero Dependencies">
+</p>
 
 ---
 
-## Requirements
+SysBoard adalah dashboard sistem Linux self-hosted yang dibangun dengan Go (stdlib only) dan vanilla JS. Berjalan sebagai binary tunggal tanpa dependensi runtime dan tidak melakukan request jaringan eksternal saat halaman dimuat.
 
-- Linux (Ubuntu 20.04+ / Debian 11+ recommended)
-- Go >= 1.21 (build-time only; binary has zero runtime deps)
-- `systemd` (for service management and service metrics)
+## Daftar Isi
+
+- [Fitur](#fitur)
+- [Konsep dan Arsitektur](#konsep-dan-arsitektur)
+- [Struktur Repository](#struktur-repository)
+- [Prasyarat](#prasyarat)
+- [Instalasi](#instalasi)
+- [Konfigurasi Environment](#konfigurasi-environment)
+- [Deployment](#deployment)
+- [Referensi API](#referensi-api)
+- [Manajemen dan Operasional](#manajemen-dan-operasional)
+- [Pembaruan](#pembaruan)
+- [Verifikasi](#verifikasi)
+- [Keamanan](#keamanan)
+- [Kontribusi](#kontribusi)
+- [Lisensi](#lisensi)
 
 ---
 
-## Install
+## Fitur
 
-One-command install with optional feature selection:
+| Fitur | Deskripsi |
+|---|---|
+| Overview | Penggunaan CPU, RAM, suhu CPU (hwmon + thermal_zone sebagai fallback), uptime sistem, kecepatan RX/TX jaringan beserta akumulator kumulatif, penggunaan disk per mount (auto-detect dari `/proc/mounts`). |
+| Proses | 30 proses teratas berdasarkan konsumsi CPU, dibaca langsung dari `/proc`. Menampilkan PID, CPU%, RAM, user, dan state. Dapat difilter berdasarkan nama. |
+| Layanan | Seluruh unit systemd dengan penggunaan RAM dan uptime per layanan. Dapat diurutkan berdasarkan nama, RAM, atau status. Pencarian teks penuh. Aksi start / stop / restart. |
+| Container | Deteksi container multi-engine: Docker, Podman, containerd (via nerdctl). Deteksi engine bersifat otomatis. Aksi start / stop / restart. Fitur ini opsional saat instalasi. |
 
-```bash
-curl -fsSL https://raw.githubusercontent.com/hilmyah/SysBoard/master/install.sh | bash
+---
+
+## Konsep dan Arsitektur
+
+SysBoard berjalan sebagai satu proses Go yang sekaligus menyajikan file statis frontend dan menangani seluruh endpoint API. Semua data metrik dibaca langsung dari antarmuka kernel Linux tanpa memanggil utilitas eksternal.
+
+```text
++------------+     HTTP (port 8888)      +---------------------------+
+|  Browser   | <-----------------------> |   SysBoard (Go binary)    |
++------------+                           +-------------+-------------+
+                                                       |
+                              +------------------------+------------------------+
+                              |                        |                        |
+                              v                        v                        v
+                    /proc, /sys/fs              systemd (D-Bus)         Docker / Podman /
+                    (CPU, RAM, disk,           (service listing,        containerd socket
+                     proses, network,           start/stop/restart)     (opsional)
+                     suhu CPU)
 ```
 
-The script will ask whether to include Containers support, then download, build, and install the service automatically. Running it again on an existing install performs an update.
+Proses Go tunggal menangani semua concern: routing HTTP, autentikasi token, pembacaan metrik, manajemen layanan, dan manajemen container. Frontend (HTML, CSS, JS) disajikan langsung oleh file server bawaan Go dari direktori `static/` tanpa CDN atau aset eksternal.
 
 ---
 
-## Repository Structure
+## Struktur Repository
 
 ```
-/
-├── main.go                  routing and entry point
+SysBoard/
+├── main.go                  Routing dan entry point
 ├── middleware.go            CORS headers, auth middleware, login handler
 ├── metrics.go               CPU, RAM, disk, network, temperature
-├── processes.go             /proc-based process listing
-├── services.go              systemd service management
-├── containers.go            container support (Docker/Podman/nerdctl)
-├── containers_stub.go       no-op replacement when containers not selected
+├── processes.go             Pembacaan proses berbasis /proc
+├── services.go              Manajemen layanan systemd
+├── containers.go            Dukungan container (Docker/Podman/nerdctl)
+├── containers_stub.go       No-op pengganti containers.go bila fitur tidak dipilih
 ├── go.mod
 ├── static/
-│   ├── index.html           HTML structure
-│   ├── style.css            all styles
-│   └── app.js               all frontend logic
+│   ├── index.html           Struktur HTML
+│   ├── style.css            Seluruh style
+│   └── app.js               Seluruh logika frontend
 ├── systemd/
-│   └── sysboard.service     systemd unit template
-├── .env.example             configuration template
+│   └── sysboard.service     Template unit systemd
+├── .env.example             Template konfigurasi
 ├── .gitignore
-├── install.sh               interactive installer
+├── install.sh               Installer interaktif
 └── README.md
 ```
 
 ---
 
-## Manual Deploy
+## Prasyarat
 
-### 1. Clone and configure
+| Komponen | Spesifikasi / Versi | Keterangan |
+|---|---|---|
+| Linux | Ubuntu 20.04+ / Debian 11+ | Sistem operasi target deployment |
+| Go | >= 1.21 | Hanya diperlukan saat build; binary tidak memiliki dependensi runtime |
+| systemd | - | Diperlukan untuk manajemen dan pengukuran metrik layanan |
+
+### Port Jaringan
+
+| Port | Protokol | Arah | Deskripsi |
+|---|---|---|---|
+| `8888` | TCP | Inbound | Port HTTP default SysBoard (dapat diubah via `SYSBOARD_PORT`) |
+
+---
+
+## Instalasi
+
+### Instalasi Cepat
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hilmyah/SysBoard/master/install.sh | bash
+```
+
+Skrip akan menanyakan apakah fitur Container ingin disertakan, kemudian mengunduh, membangun, dan menginstal service secara otomatis. Menjalankan ulang skrip pada instalasi yang sudah ada akan melakukan pembaruan.
+
+### Instalasi Manual
+
+**1. Clone dan konfigurasi**
 
 ```bash
 git clone https://github.com/hilmyah/SysBoard.git /opt/sysboard
@@ -79,59 +130,45 @@ cp .env.example .env
 chmod 600 .env
 ```
 
-Edit `.env` and set `SYSBOARD_TOKEN`:
+Buat nilai token dan isi `SYSBOARD_TOKEN` pada `.env`:
 
 ```bash
 openssl rand -hex 32
 ```
 
-### 2. Build
+**2. Build**
 
-With container support (default):
+Dengan dukungan container (default):
 
 ```bash
 go build -ldflags="-s -w" -o sysboard .
 ```
 
-Without container support (uses containers_stub.go instead of containers.go):
+Tanpa dukungan container (menggunakan `containers_stub.go` sebagai pengganti `containers.go`):
 
 ```bash
-# Remove or exclude containers.go before building.
-# The install script handles this automatically.
-```
-
-### 3. Install and start
-
-```bash
-cp systemd/sysboard.service /etc/systemd/system/
-systemctl daemon-reload
-systemctl enable --now sysboard
-```
-
-### 4. Verify
-
-```bash
-systemctl status sysboard
-journalctl -u sysboard -f
-
-curl -s http://localhost:8888/api/login \
-  -H 'Content-Type: application/json' \
-  -d '{"token":"YOUR_TOKEN"}'
-# Expected: {"ok":true}
+# Hapus atau keluarkan containers.go sebelum build.
+# install.sh menangani ini secara otomatis.
 ```
 
 ---
 
-## Configuration (.env)
+## Konfigurasi Environment
 
-| Variable | Required | Default | Description |
-|---|---|---|---|
-| `SYSBOARD_TOKEN` | Yes | none | Static token for all API authentication |
-| `SYSBOARD_PORT` | No | `8888` | TCP listen port |
+Salin `.env.example` menjadi `.env`:
 
-The binary will refuse to start if `SYSBOARD_TOKEN` is not set.
+```bash
+cp .env.example .env
+```
 
-To change configuration without rebuilding:
+| Variabel | Wajib | Default | Deskripsi |
+|---|:---:|---|---|
+| `SYSBOARD_TOKEN` | Ya | - | Token statis untuk seluruh autentikasi API |
+| `SYSBOARD_PORT` | Tidak | `8888` | Port TCP yang digunakan |
+
+Binary akan menolak berjalan apabila `SYSBOARD_TOKEN` tidak diatur.
+
+Untuk mengubah konfigurasi tanpa build ulang:
 
 ```bash
 nano /opt/sysboard/.env
@@ -140,7 +177,17 @@ systemctl restart sysboard
 
 ---
 
-## Rebuild After Editing Source
+## Deployment
+
+### Systemd Service
+
+```bash
+cp systemd/sysboard.service /etc/systemd/system/
+systemctl daemon-reload
+systemctl enable --now sysboard
+```
+
+### Rebuild Setelah Mengubah Source
 
 ```bash
 cd /opt/sysboard
@@ -150,39 +197,93 @@ systemctl restart sysboard
 
 ---
 
-## API Reference
+## Referensi API
 
-All endpoints except `/api/login` require the header `X-Auth-Token: <token>`.
+Seluruh endpoint kecuali `/api/login` membutuhkan header `X-Auth-Token: <token>`.
 
-| Endpoint | Method | Description |
-|---|---|---|
-| `POST /api/login` | POST | `{"token":"..."}` -- returns `{"ok":true}` |
-| `GET /api/metrics` | GET | CPU, RAM, disk, temperature, network I/O |
-| `GET /api/processes` | GET | Top 30 processes by CPU |
-| `GET /api/services` | GET | All systemd services with RAM and uptime |
-| `POST /api/services/action` | POST | `{"service":"name","action":"start\|stop\|restart"}` |
-| `GET /api/containers` | GET | Containers from all detected engines |
-| `POST /api/containers/action` | POST | `{"id":"...","engine":"docker\|podman\|containerd","action":"..."}` |
+| Method | Endpoint | Deskripsi |
+|:---:|---|---|
+| `POST` | `/api/login` | `{"token":"..."}` -- mengembalikan `{"ok":true}` |
+| `GET` | `/api/metrics` | CPU, RAM, disk, suhu, network I/O |
+| `GET` | `/api/processes` | 30 proses teratas berdasarkan CPU |
+| `GET` | `/api/services` | Seluruh layanan systemd beserta RAM dan uptime |
+| `POST` | `/api/services/action` | `{"service":"nama","action":"start\|stop\|restart"}` |
+| `GET` | `/api/containers` | Container dari seluruh engine yang terdeteksi |
+| `POST` | `/api/containers/action` | `{"id":"...","engine":"docker\|podman\|containerd","action":"..."}` |
 
-Static files (`/`, `/style.css`, `/app.js`) are served from `./static/` by Go's built-in file server.
-
----
-
-## Security Notes
-
-- `.env` contains your token. Keep permissions at `600` and owner `root`.
-- The binary is served over plain HTTP. For public exposure, put it behind a reverse proxy with TLS (nginx, Caddy).
-- Service actions execute as `root`. Only expose the dashboard on trusted networks.
-- The frontend makes zero external network requests: no CDN, no fonts, no analytics.
+File statis (`/`, `/style.css`, `/app.js`) disajikan dari `./static/` oleh file server bawaan Go.
 
 ---
 
-## Contributing
+## Manajemen dan Operasional
 
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feature/your-feature`.
-3. Keep `go.mod` free of external dependencies -- stdlib only.
-4. Test on a real Linux system; this code reads from `/proc` and `/sys` directly.
-5. Open a pull request with a clear description of the change.
+### Perintah Layanan
 
-Bug reports: open an issue with `journalctl -u sysboard --no-pager -n 50`.
+```bash
+systemctl start sysboard
+systemctl stop sysboard
+systemctl status sysboard
+```
+
+### Lokasi Log
+
+| Sumber | Isi |
+|---|---|
+| `journalctl -u sysboard -f` | Log runtime SysBoard secara realtime |
+| `journalctl -u sysboard --no-pager -n 50` | 50 baris log terakhir |
+
+---
+
+## Pembaruan
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hilmyah/SysBoard/master/install.sh | bash
+```
+
+Menjalankan ulang skrip pada instalasi yang sudah ada secara otomatis melakukan pembaruan: menarik source terbaru, melakukan build ulang, dan me-restart service.
+
+---
+
+## Verifikasi
+
+```bash
+systemctl status sysboard
+journalctl -u sysboard -f
+
+curl -s http://localhost:8888/api/login \
+  -H 'Content-Type: application/json' \
+  -d '{"token":"YOUR_TOKEN"}'
+```
+
+Output yang diharapkan:
+
+```json
+{"ok":true}
+```
+
+---
+
+## Keamanan
+
+- `.env` menyimpan token autentikasi. Jaga permission pada `600` dengan owner `root`.
+- Service berjalan via HTTP polos. Untuk akses publik, gunakan reverse proxy dengan TLS (nginx, Caddy).
+- Aksi layanan dijalankan sebagai `root`. Hanya ekspos dashboard ke jaringan tepercaya.
+- Frontend tidak melakukan request jaringan eksternal: tanpa CDN, tanpa font eksternal, tanpa analytics.
+
+---
+
+## Kontribusi
+
+1. Fork repository.
+2. Buat branch fitur: `git checkout -b feature/nama-fitur`.
+3. Jaga `go.mod` bebas dari dependensi eksternal -- stdlib only.
+4. Uji pada sistem Linux nyata; kode ini membaca langsung dari `/proc` dan `/sys`.
+5. Buka pull request dengan deskripsi perubahan yang jelas.
+
+Laporan bug: sertakan output `journalctl -u sysboard --no-pager -n 50`.
+
+---
+
+## Lisensi
+
+SysBoard dirilis di bawah lisensi MIT.
